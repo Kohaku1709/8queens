@@ -1,0 +1,10 @@
+{
+  "name": "eight-queens-tkinter",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Tkinter desktop app for the 8 queens problem.",
+  "scripts": {
+    "dev": "python eight_queens.py",
+    "start": "python eight_queens.py"
+  }
+}

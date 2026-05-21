@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import tkinter as tk
 from tkinter import messagebox
 
@@ -26,6 +27,9 @@ class EightQueens:
         self.root.geometry(f"{w}x{h}+{(sw - w) // 2}+{(sh - h) // 2}")
 
         self.queens = [-1] * N  # queens[col] = row, -1 nếu chưa đặt
+        self._transient_conflicts = set()
+        self._conflict_after_id = None
+        self._hint_after_id = None
         self._all_solutions = self._find_all_solutions()  # 92 lời giải
         self._solution_idx = -1
 
@@ -134,7 +138,7 @@ class EightQueens:
     # ---------------------------------------------------------------- Vẽ
     def _draw_board(self):
         self.canvas.delete("all")
-        conflicts = self._get_conflicts()
+        conflicts = self._get_conflicts() | self._transient_conflicts
 
         for r in range(N):
             for c in range(N):
@@ -176,6 +180,16 @@ class EightQueens:
                     conflict.add(r2 * N + c2)
         return conflict
 
+    def _get_attackers(self, row, col):
+        attackers = {row * N + col}
+        for c in range(N):
+            if c == col or self.queens[c] == -1:
+                continue
+            r = self.queens[c]
+            if r == row or abs(r - row) == abs(c - col):
+                attackers.add(r * N + c)
+        return attackers
+
     def _is_safe(self, row, col):
         for c in range(N):
             if c == col or self.queens[c] == -1:
@@ -191,6 +205,8 @@ class EightQueens:
         if not (0 <= r < N and 0 <= c < N):
             return
 
+        self._clear_transient_conflicts(redraw=False)
+        self.canvas.delete("hint")
         pos_name = "abcdefgh"[c] + str(8 - r)
 
         if self.queens[c] == r:
@@ -203,6 +219,7 @@ class EightQueens:
                 f"❌  Vị trí {pos_name} xung đột! "
                 "Hậu này tấn công hậu khác trên cùng hàng, cột hoặc đường chéo. "
                 "Hãy chọn ô khác.", "error")
+            self._show_transient_conflicts(r, c)
             self._shake()
             return
         else:
@@ -240,7 +257,7 @@ class EightQueens:
 
     def _update_status(self):
         placed = sum(1 for q in self.queens if q != -1)
-        confl  = len(self._get_conflicts())
+        confl  = len(self._get_conflicts() | self._transient_conflicts)
         self.cnt_var.set(str(placed))
         self.rem_var.set(str(8 - placed))
         self.conf_var.set(str(confl))
@@ -248,36 +265,44 @@ class EightQueens:
     def _clear(self):
         self.queens = [-1] * N
         self._solution_idx = -1
+        self._clear_transient_conflicts(redraw=False)
+        self.canvas.delete("hint")
         self._set_msg("Đã xóa bàn cờ. Hãy bắt đầu lại!", "normal")
         self._draw_board()
         self._update_status()
 
     def _hint(self):
         """Làm nổi bật các ô hợp lệ trong cột chưa có hậu đầu tiên."""
-        hint_drawn = False
+        self._clear_transient_conflicts()
+        self.canvas.delete("hint")
+        if self._hint_after_id is not None:
+            self.root.after_cancel(self._hint_after_id)
+            self._hint_after_id = None
+
         for c in range(N):
             if self.queens[c] == -1:
-                for r in range(N):
-                    if self._is_safe(r, c):
-                        x1, y1 = c * CELL + 6, r * CELL + 6
-                        x2, y2 = (c + 1) * CELL - 6, (r + 1) * CELL - 6
-                        self.canvas.create_rectangle(x1, y1, x2, y2,
-                                                     fill=HINT_COLOR,
-                                                     outline="#3a9a3a",
-                                                     width=2,
-                                                     tags="hint")
+                safe_rows = [r for r in range(N) if self._is_safe(r, c)]
+                if not safe_rows:
+                    self._set_msg(
+                        f"Cột {'abcdefgh'[c]} không còn vị trí hợp lệ. "
+                        "Hãy xóa hoặc di chuyển một hậu trước đó.", "error")
+                    return
+
+                for r in safe_rows:
+                    x1, y1 = c * CELL + 6, r * CELL + 6
+                    x2, y2 = (c + 1) * CELL - 6, (r + 1) * CELL - 6
+                    self.canvas.create_rectangle(x1, y1, x2, y2,
+                                                 fill=HINT_COLOR,
+                                                 outline="#3a9a3a",
+                                                 width=2,
+                                                 tags="hint")
                 self._set_msg(
                     f"💡  Ô xanh = vị trí hợp lệ cho cột {'abcdefgh'[c]}. "
                     "Nhấn bất kỳ ô nào để tiếp tục.", "ok")
-                hint_drawn = True
+                self._hint_after_id = self.root.after(2000, self._clear_hints)
                 break
-
-        if not hint_drawn:
+        else:
             self._set_msg("Tất cả các cột đã có hậu!", "normal")
-
-        # Xóa gợi ý sau 2 giây
-        if hint_drawn:
-            self.root.after(2000, lambda: self.canvas.delete("hint"))
 
     def _find_all_solutions(self):
         """Tìm tất cả 92 lời giải bằng backtracking."""
@@ -314,6 +339,11 @@ class EightQueens:
 
     def _auto_solve(self):
         total = len(self._all_solutions)
+        if total == 0:
+            self._set_msg("Không tìm thấy lời giải nào.", "error")
+            return
+        self._clear_transient_conflicts(redraw=False)
+        self.canvas.delete("hint")
         self._solution_idx = (self._solution_idx + 1) % total
         self.queens = self._all_solutions[self._solution_idx][:]
         self._set_msg(
@@ -331,6 +361,33 @@ class EightQueens:
 
     def _on_mousewheel(self, event):
         self._scroll_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+    def _clear_hints(self):
+        self.canvas.delete("hint")
+        self._hint_after_id = None
+
+    def _show_transient_conflicts(self, row, col):
+        if self._conflict_after_id is not None:
+            self.root.after_cancel(self._conflict_after_id)
+
+        self._transient_conflicts = self._get_attackers(row, col)
+        self._draw_board()
+        self._update_status()
+        self._conflict_after_id = self.root.after(
+            1200, lambda: self._clear_transient_conflicts(cancel_timer=False))
+
+    def _clear_transient_conflicts(self, redraw=True, cancel_timer=True):
+        if cancel_timer and self._conflict_after_id is not None:
+            self.root.after_cancel(self._conflict_after_id)
+        self._conflict_after_id = None
+
+        if not self._transient_conflicts:
+            return
+
+        self._transient_conflicts = set()
+        if redraw:
+            self._draw_board()
+            self._update_status()
 
     def _shake(self):
         """Hiệu ứng nhấp nháy viền đỏ khi đặt sai (không dùng place để tránh phá layout)."""

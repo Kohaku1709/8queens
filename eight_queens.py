@@ -282,22 +282,34 @@ class EightQueens:
     def _find_all_solutions(self):
         """Tìm tất cả 92 lời giải bằng backtracking."""
         solutions = []
+        placement = [-1] * N
+        used_rows = set()
+        used_diag_down = set()  # row - col
+        used_diag_up = set()    # row + col
 
-        def solve(col, placement):
+        def solve(col):
             if col == N:
                 solutions.append(placement[:])
                 return
             for row in range(N):
-                if all(
-                    placement[c] != row and
-                    abs(placement[c] - row) != abs(c - col)
-                    for c in range(col)
-                ):
-                    placement[col] = row
-                    solve(col + 1, placement)
-                    placement[col] = -1
+                diag_down = row - col
+                diag_up = row + col
+                if (row in used_rows or
+                        diag_down in used_diag_down or
+                        diag_up in used_diag_up):
+                    continue
 
-        solve(0, [-1] * N)
+                placement[col] = row
+                used_rows.add(row)
+                used_diag_down.add(diag_down)
+                used_diag_up.add(diag_up)
+                solve(col + 1)
+                used_diag_up.remove(diag_up)
+                used_diag_down.remove(diag_down)
+                used_rows.remove(row)
+                placement[col] = -1
+
+        solve(0)
         return solutions
 
     def _auto_solve(self):
